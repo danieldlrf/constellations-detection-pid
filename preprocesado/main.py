@@ -26,22 +26,22 @@ def preprocesing(img_path, area_min=2, area_max=150, max_iter=50,
     #Limpieza de ruido usando la mediana 3x3
     im_median = cv.medianBlur(im_gris, 3)
     
-    #Limpieza de ruido usnado operación morfologica Top-Hat 
+    #Eliminacion del fondo usando operación morfologica Top-Hat 
     se_elipse = cv.getStructuringElement(cv.MORPH_ELLIPSE, (tam_se,tam_se))
     im_tophat = cv.morphologyEx(im_median,  cv.MORPH_TOPHAT, se_elipse, iterations=1)
     
     #Binarizacion usando umbrales adaptativos
     umbral = umbral_inicial
     args = (area_min, area_max, ratio_max, relleno_min, area_forma_min)
-    estrellas = detectar_componentes(umbral, im_tophat, area_min, area_max, *args)
+    estrellas = detectar_componentes(umbral, im_tophat, *args)
     
     for _ in range(max_iter):
         #Si hay mas de las estrellas minimas o el umbral es <= umbral_min para el bucle
         if len(estrellas) >= n_min or umbral <= umbral_min:
             break
         #Reducimos el umbral
-        umbral = max(0, umbral - paso)
-        estrellas = detectar_componentes(umbral, im_tophat, area_min, area_max, *args)
+        umbral = max(umbral_min, umbral - paso)
+        estrellas = detectar_componentes(umbral, im_tophat, *args)
     
     if len(estrellas) < n_min:
         raise EstrellasInsuficientesError(
