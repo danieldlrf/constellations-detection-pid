@@ -1,0 +1,18 @@
+@"
+# Entornos y caché de Python
+.venv/
+__pycache__/
+*.pyc
+
+# Recortes generados (se regeneran con prepare_dataset.py)
+data/processed/
+data/raw/
+
+# Imágenes sueltas en cualquier sitio
+*.jpg
+*.jpeg
+*.png
+
+# Pero sí se sube el zip del dataset
+!data/dataset.zip
+"@ | Set-Content -Encoding utf8 .gitignore
