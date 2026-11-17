@@ -3,8 +3,8 @@ Agrupa recortes de constelaciones por nombre a partir de un ZIP (o carpeta) con
 el dataset COCO de Roboflow.
 
 Uso:
-  python src/prepare_dataset.py --input data/dataset.zip --out data/processed --exclude moon
-  python src/prepare_dataset.py --input data/dataset.zip --out data/processed --zip-output data/recortes.zip
+  python src/prepare_dataset/prepare_dataset.py --input data/dataset.zip --out data/processed --exclude moon
+  python src/prepare_dataset/prepare_dataset.py --input data/dataset.zip --out data/processed --zip-output data/recortes.zip
 """
 import argparse
 import csv

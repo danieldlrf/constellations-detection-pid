@@ -1,23 +1,19 @@
 import cv2 as cv 
 import matplotlib.pyplot as plt 
 import numpy as np
+import os
 
 class EstrellasInsuficientesError(ValueError):
     """Se detectaron menos estrellas de las necesarias."""
     
-def tam_se_desde_area(area_max, margen=2):
-    """Tamaño (impar) del elemento estructurante a partir del área máxima de una estrella."""
-    diametro = int(np.ceil(2 * np.sqrt(area_max / np.pi)))  # diámetro de un círculo de esa área
-    tam = diametro + margen
-    return tam if tam % 2 == 1 else tam + 1
-
-def preprocesing(img_path, area_min=2, area_max=150, max_iter=50,
+def preprocessing(img_path, path_testing, area_min=2, area_max=150, max_iter=50,
                 n_min=3, n_max=15, umbral_inicial=225, paso=5, tam_se=None, 
-                ratio_max=2.0, relleno_min=0.5, area_forma_min=9, umbral_min=20):
+                ratio_max=2.0, relleno_min=0.5, area_forma_min=9, umbral_min=20, testing=False):
     #Conversion de la imagen a escala de grises
     im_gris = cv.imread(img_path, 0)
     if im_gris is None:
         raise FileNotFoundError(img_path)
+    if testing: _guardar(path_testing,"im_gris.png", im_gris)
     
     #Calcular el tamaño del elemento estructural
     if tam_se is None:
@@ -25,28 +21,33 @@ def preprocesing(img_path, area_min=2, area_max=150, max_iter=50,
         
     #Limpieza de ruido usando la mediana 3x3
     im_median = cv.medianBlur(im_gris, 3)
+    if testing: _guardar(path_testing,"im_median.png", im_median)
     
     #Eliminacion del fondo usando operación morfologica Top-Hat 
     se_elipse = cv.getStructuringElement(cv.MORPH_ELLIPSE, (tam_se,tam_se))
     im_tophat = cv.morphologyEx(im_median,  cv.MORPH_TOPHAT, se_elipse, iterations=1)
+    if testing: _guardar(path_testing,"im_tophat.png", im_tophat)
+    if testing: _guardar(path_testing, "im_tophat_visible.png",
+                     cv.normalize(im_tophat, None, 0, 255, cv.NORM_MINMAX))
     
     #Binarizacion usando umbrales adaptativos
     umbral = umbral_inicial
-    args = (area_min, area_max, ratio_max, relleno_min, area_forma_min)
-    estrellas = detectar_componentes(umbral, im_tophat, *args)
+    args = (area_min, area_max, ratio_max, relleno_min, area_forma_min, testing, path_testing)
+    estrellas = detectar_componentes(umbral, im_tophat, *args, i=0)
     
-    for _ in range(max_iter):
+    for i in range(max_iter):
         #Si hay mas de las estrellas minimas o el umbral es <= umbral_min para el bucle
         if len(estrellas) >= n_min or umbral <= umbral_min:
             break
         #Reducimos el umbral
         umbral = max(umbral_min, umbral - paso)
-        estrellas = detectar_componentes(umbral, im_tophat, *args)
+        estrellas = detectar_componentes(umbral, im_tophat, *args, i=i+1)
     
     if len(estrellas) < n_min:
         raise EstrellasInsuficientesError(
             f"{img_path}: {len(estrellas)} estrellas (mínimo {n_min}), umbral final {umbral}"
         )
+    
     
     #Obtener las n_max estrellas de la lista con mas brillo
     estrellas.sort(key=lambda e: e[2], reverse=True)
@@ -54,8 +55,9 @@ def preprocesing(img_path, area_min=2, area_max=150, max_iter=50,
     return np.array(estrellas, dtype=float).reshape(-1, 3)
     
 def detectar_componentes(umbral, tophat, area_min, area_max,
-                         ratio_max, relleno_min, area_forma_min):
+                         ratio_max, relleno_min, area_forma_min, testing, path_testing, i):
         _, binaria = cv.threshold(tophat, umbral, 255, cv.THRESH_BINARY)
+        if testing: _guardar(path_testing,f"binaria{i}.png", binaria)
         #Extracción de centroides
         n, labels, stats, cent = cv.connectedComponentsWithStats(binaria, connectivity=8)
         res = []
@@ -77,3 +79,13 @@ def detectar_componentes(umbral, tophat, area_min, area_max,
             brillo = tophat[labels == i].max()
             res.append((cent[i][0], cent[i][1], brillo))
         return res
+
+def tam_se_desde_area(area_max, margen=2):
+    diametro = int(np.ceil(2 * np.sqrt(area_max / np.pi)))  # diámetro de un círculo de esa área
+    tam = diametro + margen
+    return tam if tam % 2 == 1 else tam + 1
+
+def _guardar(carpeta, nombre, imagen):
+    os.makedirs(carpeta, exist_ok=True)
+    cv.imwrite(os.path.join(carpeta, nombre), imagen)
+    
