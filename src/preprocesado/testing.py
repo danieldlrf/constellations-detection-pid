@@ -2,9 +2,12 @@ import glob
 import os
 import re
 import shutil
-
+import sys
+from pathlib import Path
 import cv2 as cv
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from preprocesado.preprocessing import preprocessing, EstrellasInsuficientesError
 
@@ -14,9 +17,10 @@ from preprocesado.preprocessing import preprocessing, EstrellasInsuficientesErro
 
 # Imágenes que quieres probar
 IMAGENES = [
-    "ruta/foto1.jpg",
-    "ruta/foto2.jpg",
-    "ruta/foto3.jpg",
+    "data/processed/testing/aquila/aquila_test_img9_ann30.jpg",
+    "data/processed/testing/bootes/bootes_test_img9_ann28.jpg",
+    "data/processed/testing/canis_major/canis_major_test_img13_ann48.jpg",
+    "data/processed/testing/gemini/gemini_test_img13_ann47.jpg"
 ]
 
 # Carpeta donde se guardan las imágenes de cada paso (una subcarpeta por foto)
