@@ -5,10 +5,11 @@ import os
 
 class EstrellasInsuficientesError(ValueError):
     """Se detectaron menos estrellas de las necesarias."""
-    
+
 def preprocessing(img_path, path_testing, area_min=2, area_max=150, max_iter=50,
-                n_min=3, n_max=15, umbral_inicial=225, paso=5, tam_se=None, 
-                ratio_max=2.0, relleno_min=0.5, area_forma_min=9, umbral_min=20, testing=False):
+                n_min=5, n_max=12, umbral_inicial=35, paso=5, tam_se=None, 
+                ratio_max=2.0, relleno_min=0.5, area_forma_min=9, umbral_min=20,
+                umbral_max=240, testing=False):
     #Conversion de la imagen a escala de grises
     im_gris = cv.imread(img_path, 0)
     if im_gris is None:
@@ -30,26 +31,34 @@ def preprocessing(img_path, path_testing, area_min=2, area_max=150, max_iter=50,
     if testing: _guardar(path_testing, "im_tophat_visible.png",
                      cv.normalize(im_tophat, None, 0, 255, cv.NORM_MINMAX))
     
-    #Binarizacion usando umbrales adaptativos
+    # Binarizacion usando umbrales adaptativos
     umbral = umbral_inicial
     args = (area_min, area_max, ratio_max, relleno_min, area_forma_min, testing, path_testing)
     estrellas = detectar_componentes(umbral, im_tophat, *args, i=0)
-    
-    for i in range(max_iter):
-        #Si hay mas de las estrellas minimas o el umbral es <= umbral_min para el bucle
-        if len(estrellas) >= n_min or umbral <= umbral_min:
+    paso_idx = 0
+
+    # Si detectamos demasiadas estrellas (> n_max), subimos el umbral
+    while len(estrellas) > n_max and umbral < umbral_max and paso_idx < max_iter:
+        paso_idx += 1
+        umbral_nuevo = min(umbral_max, umbral + paso)
+        candidatas = detectar_componentes(umbral_nuevo, im_tophat, *args, i=paso_idx)
+        # Si al subir bajamos de n_min, nos quedamos con el paso anterior
+        if len(candidatas) < n_min:
             break
-        #Reducimos el umbral
+        umbral, estrellas = umbral_nuevo, candidatas
+
+    # Si detectamos pocas estrellas (< n_min), bajamos el umbral hasta umbral_min
+    while len(estrellas) < n_min and umbral > umbral_min and paso_idx < max_iter:
+        paso_idx += 1
         umbral = max(umbral_min, umbral - paso)
-        estrellas = detectar_componentes(umbral, im_tophat, *args, i=i+1)
-    
+        estrellas = detectar_componentes(umbral, im_tophat, *args, i=paso_idx)
+
     if len(estrellas) < n_min:
         raise EstrellasInsuficientesError(
             f"{img_path}: {len(estrellas)} estrellas (mínimo {n_min}), umbral final {umbral}"
         )
-    
-    
-    #Obtener las n_max estrellas de la lista con mas brillo
+
+    # Obtener las n_max estrellas de la lista con mas brillo
     estrellas.sort(key=lambda e: e[2], reverse=True)
     estrellas = estrellas[:n_max]
     return np.array(estrellas, dtype=float).reshape(-1, 3)
