@@ -14,9 +14,27 @@ FACTORES_ESCALA = (0.7, 1.0, 1.4)     # escalas de partida de la búsqueda grues
 N_MIN_ESTRELLAS = 3
 
 def extraer_estrellas(ruta) -> np.ndarray:
-    """Estrellas (x, y, brillo) con el preprocesado existente, admitiendo 3 o más."""
-    return preprocessing(str(ruta), "", n_min=N_MIN_ESTRELLAS, testing=False)
+    """Primero intenta obtener más estrellas (umbral bajo); si no, admite 3 o más."""
+    try:
+        return preprocessing(str(ruta), "", n_min=8, n_max=15, umbral_min=5, testing=False)
+    except EstrellasInsuficientesError:
+        return preprocessing(str(ruta), "", n_min=N_MIN_ESTRELLAS, n_max=15, testing=False)
 
+
+
+def _simplex_inicial(x0, limites, escala_obj):
+    """Símplex con pasos razonables: traslación 0,25·escala, giro 0,4 rad, log-escala 0,2."""
+    pasos = np.array([0.25 * escala_obj, 0.25 * escala_obj, 0.4, 0.2])
+    lo = np.array([-np.inf if b[0] is None else b[0] for b in limites])
+    hi = np.array([np.inf if b[1] is None else b[1] for b in limites])
+    sim = [np.asarray(x0, dtype=float)]
+    for i in range(4):
+        v = np.array(x0, dtype=float)
+        v[i] += pasos[i]
+        if v[i] > hi[i]:
+            v[i] = x0[i] - pasos[i]
+        sim.append(np.clip(v, lo, hi))
+    return np.vstack(sim)
 
 def transformar_puntos(puntos, params, centro_ref, centro_obj) -> np.ndarray:
     """Rotación (alpha), escala uniforme (exp(log_s)) y traslación (tx, ty)."""
@@ -69,18 +87,19 @@ def _preparar(ref_stars, obj_stars, n_angulos: int, tau_rel: float):
 
 def _refinar(prep, n_refinar: int, maxiter: int) -> tuple[float, np.ndarray]:
     """Nelder-Mead desde los mejores arranques de la búsqueda gruesa."""
+    ref_xy, _, centro_ref, centro_obj, escala_obj, _ = prep["args"]
     mejor = None
     for i in np.argsort(prep["costes"])[:n_refinar]:
+        x0 = prep["arranques"][i]
         res = minimize(
-            _coste, prep["arranques"][i], args=prep["args"], method="Nelder-Mead",
+            _coste, x0, args=prep["args"], method="Nelder-Mead",
             bounds=prep["limites"],
-            options={"maxiter": maxiter, "xatol": 1e-3, "fatol": 1e-4},
+            options={"maxiter": maxiter, "xatol": 1e-3, "fatol": 1e-4,
+                     "initial_simplex": _simplex_inicial(x0, prep["limites"], escala_obj)},
         )
         if mejor is None or res.fun < mejor.fun:
             mejor = res
-    ref_xy, _, centro_ref, centro_obj, _, _ = prep["args"]
     return float(mejor.fun), transformar_puntos(ref_xy, mejor.x, centro_ref, centro_obj)
-
 
 def emparejar_nubes(ref_stars, obj_stars, *, n_angulos=24, n_refinar=3,
                     maxiter=400, tau_rel=0.5) -> tuple[float, np.ndarray]:
@@ -132,7 +151,7 @@ def clasificar_recorte(img_path, base_referencias, *, umbral_rechazo=0.25,
     """Identifica la constelación más parecida; None si no hay estrellas
     suficientes, el error supera el umbral o el resultado es ambiguo."""
     try:
-        obj_stars = preprocessing(str(img_path), "", testing=False)
+        obj_stars = extraer_estrellas(img_path)
     except EstrellasInsuficientesError:
         return None
 
@@ -150,3 +169,4 @@ def clasificar_recorte(img_path, base_referencias, *, umbral_rechazo=0.25,
         "stars": [(int(round(x)), int(round(y))) for x, y in puntos],
         "ranking": [(n, round(e, 4)) for n, e, _ in ranking[:3]],
     }
+
