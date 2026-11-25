@@ -34,7 +34,9 @@ def _procesar(fila):
     ranking = clasificar_estrellas(estrellas, BASE, **KW)
     if not ranking:
         return real, None, None, None
-    return real, ranking[0][0], ranking[0][1], ranking[1][1] if len(ranking) > 1 else None
+    nombres = [r[0] for r in ranking]
+    return (real, ranking[0][0], ranking[0][1],
+            ranking[1][1] if len(ranking) > 1 else None, nombres)
 
 
 def main():
@@ -47,6 +49,7 @@ def main():
     ap.add_argument("--n-refinar", type=int, default=3)
     ap.add_argument("--seed", type=int, default=None,
                     help="si se indica, --limit toma una muestra aleatoria")
+    ap.add_argument("--n-por-clase", type=int, default=3)
     args = ap.parse_args()
 
     with open(args.data / "index.csv", encoding="utf-8") as f:
@@ -59,7 +62,7 @@ def main():
         filas = filas[:args.limit]
 
     kw = dict(tau_rel=args.tau_rel, n_candidatas=args.n_candidatas,
-              n_refinar=args.n_refinar)
+              n_refinar=args.n_refinar, n_por_clase=args.n_por_clase)
     with ProcessPoolExecutor(args.workers, initializer=_init,
                              initargs=(args.data / "reference", kw)) as ex:
         resultados = list(ex.map(_procesar, filas, chunksize=8))
@@ -67,6 +70,11 @@ def main():
     sin_estrellas = sum(1 for r in resultados if r[1] is None)
     validos = [r for r in resultados if r[1] is not None]
     aciertos = [r for r in validos if r[0] == r[1]]
+
+    pos = [r[4].index(r[0]) + 1 for r in validos if r[0] in r[4]]
+    print(f"Recall de la lista de candidatas: {len(pos) / max(len(validos), 1):.1%}")
+    for k in (1, 3):
+        print(f"Acierto top-{k}: {sum(p <= k for p in pos) / max(len(validos), 1):.1%}")
     print(f"Recortes: {len(resultados)} | sin estrellas suficientes: {sin_estrellas}")
     print(f"Acierto top-1 (sobre válidos): {len(aciertos) / max(len(validos), 1):.1%}")
     print(f"Acierto top-1 (sobre todos):   {len(aciertos) / max(len(resultados), 1):.1%}")

@@ -126,25 +126,34 @@ def cargar_referencias(dir_referencias, verbose: bool = False) -> dict[str, list
     return base
 
 
-def clasificar_estrellas(obj_stars, base_referencias, *, n_candidatas=12,
+def clasificar_estrellas(obj_stars, base_referencias, *, n_candidatas=60, n_por_clase=3,
                          n_angulos=24, n_refinar=3, maxiter=400, tau_rel=0.5):
-    """Devuelve el ranking [(constelacion, error, puntos)] ordenado por error."""
     preparadas = []
     for nombre, plantillas in base_referencias.items():
         for ref in plantillas:
             prep = _preparar(ref, obj_stars, n_angulos, tau_rel)
             if prep is not None:
                 preparadas.append((nombre, prep))
-    # Poda: solo se refinan las plantillas con mejor coste en la búsqueda gruesa
-    preparadas.sort(key=lambda p: p[1]["costes"].min())
 
-    mejor_por_clase: dict[str, tuple[float, np.ndarray]] = {}
-    for nombre, prep in preparadas[:n_candidatas]:
+    por_clase = {}
+    for nombre, prep in preparadas:
+        por_clase.setdefault(nombre, []).append(prep)
+    candidatas = []
+    for nombre, lista in por_clase.items():
+        lista.sort(key=lambda p: p["costes"].min())
+        candidatas += [(nombre, p) for p in lista[:n_por_clase]]
+    candidatas.sort(key=lambda p: p[1]["costes"].min())
+
+    errores = {}
+    for nombre, prep in candidatas[:n_candidatas]:
         error, pts = _refinar(prep, n_refinar, maxiter)
-        if nombre not in mejor_por_clase or error < mejor_por_clase[nombre][0]:
-            mejor_por_clase[nombre] = (error, pts)
-    return sorted(((n, e, p) for n, (e, p) in mejor_por_clase.items()), key=lambda r: r[1])
-
+        errores.setdefault(nombre, []).append((error, pts))
+    resultado = []
+    for nombre, lst in errores.items():
+        lst.sort(key=lambda t: t[0])
+        score = float(np.mean([e for e, _ in lst[:2]]))
+        resultado.append((nombre, score, lst[0][1]))
+    return sorted(resultado, key=lambda r: r[1])
 
 def clasificar_recorte(img_path, base_referencias, *, umbral_rechazo=0.25,
                        margen_min=0.0, **kwargs) -> dict[str, Any] | None:
