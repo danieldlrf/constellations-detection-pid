@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import math
 from scipy.optimize import linear_sum_assignment, minimize
 
 from src.preprocesado.preprocessing import EstrellasInsuficientesError, preprocessing
@@ -39,16 +40,21 @@ def _simplex_inicial(x0, limites, escala_obj):
 def transformar_puntos(puntos, params, centro_ref, centro_obj) -> np.ndarray:
     """Rotación (alpha), escala uniforme (exp(log_s)) y traslación (tx, ty)."""
     tx, ty, alpha, log_s = params
-    c, s = np.cos(alpha), np.sin(alpha)
-    rot = np.array([[c, -s], [s, c]])
-    return np.exp(log_s) * ((puntos - centro_ref) @ rot.T) + centro_obj + (tx, ty)
-
+    k = math.exp(log_s)
+    c, s = math.cos(alpha), math.sin(alpha)
+    x = puntos[:, 0] - centro_ref[0]
+    y = puntos[:, 1] - centro_ref[1]
+    out = np.empty((len(puntos), 2))
+    out[:, 0] = k * (c * x - s * y) + centro_obj[0] + tx
+    out[:, 1] = k * (s * x + c * y) + centro_obj[1] + ty
+    return out
 
 def _coste(params, ref_xy, obj_xy, centro_ref, centro_obj, escala_obj, tau) -> float:
     """Asignación 1 a 1 con distancias truncadas en tau. Las estrellas sin pareja
     (por diferencia de tamaño entre nubes) cuestan tau cada una."""
     pts = transformar_puntos(ref_xy, params, centro_ref, centro_obj)
-    d = np.minimum(np.linalg.norm(pts[:, None, :] - obj_xy[None, :, :], axis=2), tau)
+    d = np.minimum(np.hypot(pts[:, :1] - obj_xy[:, 0], pts[:, 1:2] - obj_xy[:, 1]), tau)
+    filas, cols = linear_sum_assignment(d)
     filas, cols = linear_sum_assignment(d)
     sin_pareja = abs(len(ref_xy) - len(obj_xy))
     total = d[filas, cols].sum() + tau * sin_pareja
@@ -126,8 +132,9 @@ def cargar_referencias(dir_referencias, verbose: bool = False) -> dict[str, list
     return base
 
 
-def clasificar_estrellas(obj_stars, base_referencias, *, n_candidatas=60, n_por_clase=3,
-                         n_angulos=24, n_refinar=3, maxiter=400, tau_rel=0.5):
+def clasificar_estrellas(obj_stars, base_referencias, *, n_candidatas=100, n_por_clase=5,
+                         n_finalistas=15, maxiter_previo=40,
+                         n_angulos=24, n_refinar=3, maxiter=150, tau_rel=0.5):
     preparadas = []
     for nombre, plantillas in base_referencias.items():
         for ref in plantillas:
@@ -144,16 +151,18 @@ def clasificar_estrellas(obj_stars, base_referencias, *, n_candidatas=60, n_por_
         candidatas += [(nombre, p) for p in lista[:n_por_clase]]
     candidatas.sort(key=lambda p: p[1]["costes"].min())
 
-    errores = {}
+    previos = []
     for nombre, prep in candidatas[:n_candidatas]:
+        e, _ = _refinar(prep, 1, maxiter_previo)
+        previos.append((e, nombre, prep))
+    previos.sort(key=lambda t: t[0])
+
+    mejor_por_clase = {}
+    for _, nombre, prep in previos[:n_finalistas]:
         error, pts = _refinar(prep, n_refinar, maxiter)
-        errores.setdefault(nombre, []).append((error, pts))
-    resultado = []
-    for nombre, lst in errores.items():
-        lst.sort(key=lambda t: t[0])
-        score = float(np.mean([e for e, _ in lst[:2]]))
-        resultado.append((nombre, score, lst[0][1]))
-    return sorted(resultado, key=lambda r: r[1])
+        if nombre not in mejor_por_clase or error < mejor_por_clase[nombre][0]:
+            mejor_por_clase[nombre] = (error, pts)
+    return sorted(((n, e, p) for n, (e, p) in mejor_por_clase.items()), key=lambda r: r[1])
 
 def clasificar_recorte(img_path, base_referencias, *, umbral_rechazo=0.25,
                        margen_min=0.0, **kwargs) -> dict[str, Any] | None:

@@ -50,6 +50,9 @@ def main():
     ap.add_argument("--seed", type=int, default=None,
                     help="si se indica, --limit toma una muestra aleatoria")
     ap.add_argument("--n-por-clase", type=int, default=3)
+    ap.add_argument("--n-finalistas", type=int, default=15)
+    ap.add_argument("--maxiter-previo", type=int, default=40)
+    ap.add_argument("--maxiter", type=int, default=400)
     args = ap.parse_args()
 
     with open(args.data / "index.csv", encoding="utf-8") as f:
@@ -62,7 +65,9 @@ def main():
         filas = filas[:args.limit]
 
     kw = dict(tau_rel=args.tau_rel, n_candidatas=args.n_candidatas,
-              n_refinar=args.n_refinar, n_por_clase=args.n_por_clase)
+              n_refinar=args.n_refinar, n_por_clase=args.n_por_clase,
+              maxiter=args.maxiter, n_finalistas=args.n_finalistas,
+              maxiter_previo=args.maxiter_previo)
     with ProcessPoolExecutor(args.workers, initializer=_init,
                              initargs=(args.data / "reference", kw)) as ex:
         resultados = list(ex.map(_procesar, filas, chunksize=8))
