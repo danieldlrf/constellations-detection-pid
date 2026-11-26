@@ -14,6 +14,11 @@ FACTORES_ESCALA = (0.7, 1.0, 1.4)     # escalas de partida de la búsqueda grues
 
 N_MIN_ESTRELLAS = 3
 
+# Tolerancias de parada de Nelder-Mead (SciPy exige cumplir ambas).
+# xatol está en las unidades de los parámetros (píxeles para la traslación).
+XATOL = 0.05
+FATOL = 1e-3
+
 def extraer_estrellas(ruta) -> np.ndarray:
     """Primero intenta obtener más estrellas (umbral bajo); si no, admite 3 o más."""
     try:
@@ -52,13 +57,39 @@ def transformar_puntos(puntos, params, centro_ref, centro_obj) -> np.ndarray:
 def _coste(params, ref_xy, obj_xy, centro_ref, centro_obj, escala_obj, tau) -> float:
     """Asignación 1 a 1 con distancias truncadas en tau. Las estrellas sin pareja
     (por diferencia de tamaño entre nubes) cuestan tau cada una."""
-    pts = transformar_puntos(ref_xy, params, centro_ref, centro_obj)
-    d = np.minimum(np.hypot(pts[:, :1] - obj_xy[:, 0], pts[:, 1:2] - obj_xy[:, 1]), tau)
-    filas, cols = linear_sum_assignment(d)
+    tx, ty, alpha, log_s = params
+    k = math.exp(log_s)
+    c, s = k * math.cos(alpha), k * math.sin(alpha)
+    x = ref_xy[:, 0] - centro_ref[0]
+    y = ref_xy[:, 1] - centro_ref[1]
+    dx = (c * x - s * y + (centro_obj[0] + tx))[:, None] - obj_xy[:, 0]
+    dy = (s * x + c * y + (centro_obj[1] + ty))[:, None] - obj_xy[:, 1]
+    d = np.sqrt(dx * dx + dy * dy)
+    np.minimum(d, tau, out=d)
     filas, cols = linear_sum_assignment(d)
     sin_pareja = abs(len(ref_xy) - len(obj_xy))
     total = d[filas, cols].sum() + tau * sin_pareja
     return float(total / max(len(ref_xy), len(obj_xy)) / escala_obj)
+
+
+def _costes_gruesos(arranques, ref_xy, obj_xy, centro_ref, centro_obj, escala_obj, tau):
+    """Igual que _coste, pero transforma la plantilla para todos los arranques a la vez
+    (sin traslación) y solo deja el algoritmo húngaro dentro del bucle."""
+    a = np.array([x0[2] for x0 in arranques])
+    k = np.exp([x0[3] for x0 in arranques])
+    c, s = (k * np.cos(a))[:, None], (k * np.sin(a))[:, None]
+    x = ref_xy[:, 0] - centro_ref[0]
+    y = ref_xy[:, 1] - centro_ref[1]
+    dx = (c * x - s * y + centro_obj[0])[:, :, None] - obj_xy[:, 0]
+    dy = (s * x + c * y + centro_obj[1])[:, :, None] - obj_xy[:, 1]
+    d = np.minimum(np.sqrt(dx * dx + dy * dy), tau)
+    sin_pareja = abs(len(ref_xy) - len(obj_xy))
+    norm = max(len(ref_xy), len(obj_xy)) * escala_obj
+    costes = np.empty(len(arranques))
+    for i, di in enumerate(d):
+        filas, cols = linear_sum_assignment(di)
+        costes[i] = (di[filas, cols].sum() + tau * sin_pareja) / norm
+    return costes
 
 
 
@@ -83,7 +114,7 @@ def _preparar(ref_stars, obj_stars, n_angulos: int, tau_rel: float):
         for a in np.linspace(0.0, 2.0 * np.pi, n_angulos, endpoint=False)
         for f in FACTORES_ESCALA
     ]
-    costes = np.array([_coste(x0, *args) for x0 in arranques])
+    costes = _costes_gruesos(arranques, *args)
     limites = [
         (-escala_obj, escala_obj), (-escala_obj, escala_obj), (None, None),
         (np.log(s0 * RANGO_ESCALA[0]), np.log(s0 * RANGO_ESCALA[1])),
@@ -100,7 +131,7 @@ def _refinar(prep, n_refinar: int, maxiter: int) -> tuple[float, np.ndarray]:
         res = minimize(
             _coste, x0, args=prep["args"], method="Nelder-Mead",
             bounds=prep["limites"],
-            options={"maxiter": maxiter, "xatol": 1e-3, "fatol": 1e-4,
+            options={"maxiter": maxiter, "xatol": XATOL, "fatol": FATOL,
                      "initial_simplex": _simplex_inicial(x0, prep["limites"], escala_obj)},
         )
         if mejor is None or res.fun < mejor.fun:

@@ -45,14 +45,14 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="nº máximo de recortes")
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--tau-rel", type=float, default=0.5)
-    ap.add_argument("--n-candidatas", type=int, default=12)
+    ap.add_argument("--n-candidatas", type=int, default=100)
     ap.add_argument("--n-refinar", type=int, default=3)
     ap.add_argument("--seed", type=int, default=None,
                     help="si se indica, --limit toma una muestra aleatoria")
-    ap.add_argument("--n-por-clase", type=int, default=3)
-    ap.add_argument("--n-finalistas", type=int, default=15)
+    ap.add_argument("--n-por-clase", type=int, default=5)
+    ap.add_argument("--n-finalistas", type=int, default=25)
     ap.add_argument("--maxiter-previo", type=int, default=40)
-    ap.add_argument("--maxiter", type=int, default=400)
+    ap.add_argument("--maxiter", type=int, default=150)
     args = ap.parse_args()
 
     with open(args.data / "index.csv", encoding="utf-8") as f:
